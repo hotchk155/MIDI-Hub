@@ -2,10 +2,10 @@
 //
 // MIDI HUB WITH BEAT CLOCK METRONOME
 //
-// (c) 2012 Jason Hotchkiss
+// (c) 2013 Jason Hotchkiss
 // 
-// FOR PIC16F688
-// WRITTEN IN SOURCEBOOST C
+// FOR PIC16F1825
+// SOURCEBOOST C
 //
 //////////////////////////////////////////////////////////////////////////
 #include <system.h>
@@ -14,8 +14,12 @@
 // - RESET INPUT DISABLED
 // - WATCHDOG TIMER OFF
 // - INTERNAL OSC
-#pragma DATA _CONFIG, _MCLRE_OFF & _WDT_OFF & _INTRC_OSC_NOCLKOUT
+#pragma DATA _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _MCLRE_OFF &_CLKOUTEN_OFF
+#pragma DATA _CONFIG2, _WRT_OFF & _PLLEN_OFF & _STVREN_ON & _BORV_19 & _LVP_OFF
 #pragma CLOCK_FREQ 8000000
+
+
+
 
 // inputs
 #define P_RUN		portc.3
@@ -116,12 +120,12 @@ void init_usart()
 	pir1.5 = 0;		//RCIF
 	
 	pie1.1 = 0;		//TXIE 		no interrupts
-	pie1.5 = 1;		//RCIE 		no interrupts
+	pie1.5 = 1;		//RCIE 		enable
 	
-	baudctl.4 = 0;	// SCKP		synchronous bit polarity 
-	baudctl.3 = 1;	// BRG16	enable 16 bit brg
-	baudctl.1 = 0;	// WUE		wake up enable off
-	baudctl.0 = 0;	// ABDEN	auto baud detect
+	baudcon.4 = 0;	// SCKP		synchronous bit polarity 
+	baudcon.3 = 1;	// BRG16	enable 16 bit brg
+	baudcon.1 = 0;	// WUE		wake up enable off
+	baudcon.0 = 0;	// ABDEN	auto baud detect
 		
 	txsta.6 = 0;	// TX9		8 bit transmission
 	txsta.5 = 1;	// TXEN		transmit enable
@@ -200,21 +204,16 @@ void setLeds(byte d)
 void main()
 { 
 	// osc control / 8MHz / internal
-	osccon = 0b01110001;
-	
-	// timer0... configure source and prescaler
-	cmcon0 = 7;                      
-
-	// enable serial receive interrupt
-	intcon = 0b11000000;
-	pie1.5 = 1;
+	osccon = 0b01110010;
 	
 	// configure io
 	trisa = 0b00110000;              	
     trisc = 0b00111000;              
-	ansel = 0b00000000;
+	ansela = 0b00000000;
+	anselc = 0b00000000;
+	porta=0;
+	portc=0;
 
-      
 	// initialise MIDI comms
 	init_usart();
 
@@ -228,7 +227,6 @@ void main()
 	t1con.1 = 0; // internal
 	t1con.0 = 1; // enabled
 	pie1.0 = 1; // timer 1 interrupt enable
-
 	
 	// initialise app variables
 	INIT_TIMER1;
