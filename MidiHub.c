@@ -1,11 +1,12 @@
 //////////////////////////////////////////////////////////////////////////
 //
 // MIDI HUB WITH BEAT CLOCK METRONOME
-//
-// (c) 2013 Jason Hotchkiss
+// Jason Hotchkiss
 // 
 // FOR PIC16F1825
 // SOURCEBOOST C
+//
+// Rev 1.0: Feb 2013 - port of original PIC16F1825 code
 //
 //////////////////////////////////////////////////////////////////////////
 #include <system.h>
@@ -17,9 +18,6 @@
 #pragma DATA _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _MCLRE_OFF &_CLKOUTEN_OFF
 #pragma DATA _CONFIG2, _WRT_OFF & _PLLEN_OFF & _STVREN_ON & _BORV_19 & _LVP_OFF
 #pragma CLOCK_FREQ 8000000
-
-
-
 
 // inputs
 #define P_RUN		portc.3
