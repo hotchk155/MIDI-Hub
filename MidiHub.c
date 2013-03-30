@@ -6,7 +6,8 @@
 // FOR PIC16F1825
 // SOURCEBOOST C
 //
-// Rev 1.0: Feb 2013 - port of original PIC16F1825 code
+// Rev 1.00:    Feb 2013 - port of original PIC16F688 code
+// Rev 1.01: 29 Mar 2013 - fix issue with input buffer position
 //
 //////////////////////////////////////////////////////////////////////////
 #include <system.h>
@@ -103,9 +104,9 @@ void interrupt( void )
 		if(nextHead != rxTail)
 		{
 			// store the byte
-			rxHead = nextHead;
 			rxBuffer[rxHead] = b;
-		}
+			rxHead = nextHead;
+		}		
 	}
 }
 
