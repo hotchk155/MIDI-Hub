@@ -8,6 +8,7 @@
 //
 // Rev 1.00:    Feb 2013 - port of original PIC16F688 code
 // Rev 1.01: 29 Mar 2013 - fix issue with input buffer position
+// Rev 1.02: 17 May 2013 - increase debounce period
 //
 //////////////////////////////////////////////////////////////////////////
 #include <system.h>
@@ -50,7 +51,7 @@
 #define AUTO_REPEAT_DELAY		500
 
 // Key debounce period (ms)
-#define DEBOUNCE_PERIOD			50
+#define DEBOUNCE_PERIOD			150
 
 // midi TICK is sent every 1/24th of a beat
 // so we need to divide the bpm into this number
