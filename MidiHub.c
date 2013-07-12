@@ -9,6 +9,7 @@
 // Rev 1.00:    Feb 2013 - port of original PIC16F688 code
 // Rev 1.01: 29 Mar 2013 - fix issue with input buffer position
 // Rev 1.02: 17 May 2013 - increase debounce period
+// Rev 1.03: 
 //
 //////////////////////////////////////////////////////////////////////////
 #include <system.h>
@@ -19,7 +20,7 @@
 // - INTERNAL OSC
 #pragma DATA _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _MCLRE_OFF &_CLKOUTEN_OFF
 #pragma DATA _CONFIG2, _WRT_OFF & _PLLEN_OFF & _STVREN_ON & _BORV_19 & _LVP_OFF
-#pragma CLOCK_FREQ 8000000
+#pragma CLOCK_FREQ 16000000
 
 // inputs
 #define P_RUN		portc.3
@@ -46,31 +47,20 @@
 #define MIDI_SYNCH_CONTINUE 0xfb
 #define MIDI_SYNCH_STOP     0xfc
 
-// Auto repeat delays (ms)
-#define AUTO_REPEAT_INTERVAL	30
-#define AUTO_REPEAT_DELAY		500
+// Auto repeat delays 
+#define AUTO_REPEAT_INTERVAL	20
+#define AUTO_REPEAT_DELAY	 	250
 
-// Key debounce period (ms)
-#define DEBOUNCE_PERIOD			150
+// Key debounce period 
+#define DEBOUNCE_PERIOD			50
 
-// midi TICK is sent every 1/24th of a beat
-// so we need to divide the bpm into this number
-// to get the tick interval
-#define MS_PER_TICK 2500
-
-// Timer 1 used to maintain a millisecond counter
-// 8,000,000 fosc
-// 2mhz fosc/4
-// prescale/8 = 250khz
-// 250 = 1ms
-// 65536 - 250 = 65286
-#define TIMER_INIT_SCALAR 0xff06
-#define INIT_TIMER1 { tmr1l=(TIMER_INIT_SCALAR & 0xff); tmr1h=(TIMER_INIT_SCALAR>>8); }
-volatile unsigned long millis = 0;
+typedef unsigned char byte;
+volatile byte tick_flag = 0;
+volatile unsigned int timer_init_scalar = 0;
+volatile unsigned long systemTicks = 0;
 
 // define the buffer used to receive MIDI input
 #define SZ_RXBUFFER 20
-typedef unsigned char byte;
 byte rxBuffer[SZ_RXBUFFER];
 byte rxHead = 0;
 byte rxTail = 0;
@@ -80,14 +70,22 @@ byte rxTail = 0;
 // SERIAL PORT OR WHEN TIMER 1 OVERLOWS
 void interrupt( void )
 {
+	// timer 0 rollover
+	if(intcon.2)
+	{
+		systemTicks++;
+		intcon.2 = 0;
+	}
+
 	// timer 1 rollover
 	if(pir1.0)
 	{
-		INIT_TIMER1;
-		++millis;
+		tmr1l=(timer_init_scalar & 0xff); 
+		tmr1h=(timer_init_scalar>>8); 
+		tick_flag = 1;
 		pir1.0 = 0;
 	}
-	
+		
 	// serial rx interrupt
 	if(pir1.5)
 	{	
@@ -140,7 +138,8 @@ void init_usart()
 	rcsta.4 = 1;	// CREN 	continuous receive enable
 		
 	spbrgh = 0;		// brg high byte
-	spbrg = 15;		// brg low byte (31250)	
+//	spbrg = 15;		// brg low byte (31250)	
+	spbrg = 30;		// brg low byte (31250)	
 	
 }
 
@@ -199,12 +198,31 @@ void setLeds(byte d)
 	P_LED5 = !!(d & 0x20);
 }
 
+void setTimerForBPM(int bpm)
+{
+/*
+
+	beats per second = bpm / 60 
+	midi ticks per second = 24 * (bpm / 60)	
+	timer counts per MIDI tick = (timer counts per second)/(midi ticks per second)
+		= (timer counts per second)/(24 * (bpm / 60))
+		= (timer counts per second/24)/(bpm / 60)
+		= 60 * (timer counts per second/24)/bpm
+	timer init scalar = 65536 - timer counts per MIDI tick
+	
+*/
+	#define TIMER_COUNTS_PER_SECOND (unsigned long)500000
+	unsigned long l = (60 * TIMER_COUNTS_PER_SECOND)/24;
+	l = l / bpm;
+	timer_init_scalar = 65535 - l;
+}
+
 ////////////////////////////////////////////////////////////
 // MAIN
 void main()
 { 
-	// osc control / 8MHz / internal
-	osccon = 0b01110010;
+	// osc control / 16MHz / internal
+	osccon = 0b01111010;
 	
 	// configure io
 	trisa = 0b00110000;              	
@@ -217,8 +235,9 @@ void main()
 	// initialise MIDI comms
 	init_usart();
 
-	intcon.7 = 1; //GIE
-	intcon.6 = 1; //PEIE
+	int bpm = 120;	
+	setTimerForBPM(bpm);
+
 	
 	tmr1l = 0;
 	tmr1h = 0;
@@ -228,29 +247,45 @@ void main()
 	t1con.0 = 1; // enabled
 	pie1.0 = 1; // timer 1 interrupt enable
 	
+
+	// Configure timer 0
+	// 	timer 0 runs at 4MHz
+	// 	prescaled 1/64 = 62500Hz
+	// 	rollover at 256 = 244Hz
+	// 	~4ms per tick
+	
+	option_reg.5 = 0; // timer 0 driven from instruction cycle clock
+	option_reg.3 = 0; // timer 0 is prescaled
+	option_reg.2 = 1; // }
+	option_reg.1 = 0; // } 1/64 prescaler
+	option_reg.0 = 1; // }
+	intcon.5 = 1; 	  // enabled timer 0 interrrupt
+	intcon.2 = 0;     // clear interrupt fired flag
+	
+	// enable interrupts
+	
+	intcon.7 = 1; //GIE
+	intcon.6 = 1; //PEIE
+	
 	// initialise app variables
-	INIT_TIMER1;
-	unsigned long nextTick = 0;
 	unsigned long nextKeyPoll = 0;
-	int bpm = 120;
 	byte running = 0;
 	byte tickCount = 0;
 	byte lastButtonStatus = 0;
 	unsigned long autoRepeatBegin = 0;
 	unsigned long nextAutoRepeat = 0;
 	unsigned long debouncePeriodEnd = 0;
-	unsigned long tickInterval = MS_PER_TICK/bpm;
 	
 	for(;;)
-	{
+	{	
 		// run midi thru
 		midiThru();
 	
 		// run beat clock
-		if(millis > nextTick)
+		if(tick_flag)
 		{
-			nextTick = millis + tickInterval;
-			tickCount = (tickCount+1)%24;
+			tick_flag = 0;
+			tickCount = (tickCount + 1)%24;
 			if(running)
 			{
 				send(MIDI_SYNCH_TICK);
@@ -264,10 +299,10 @@ void main()
 			{
 				setLeds(0);
 			}
-		}
+		}	
 		
 		// keyboard handling
-		if(millis >= debouncePeriodEnd)
+		if(systemTicks >= debouncePeriodEnd)
 		{
 			// gather up the button statuses into a single byte
 			byte thisButtonStatus = 
@@ -283,12 +318,12 @@ void main()
 			if(!buttonActivity)
 			{				
 				// do we need to autorepeat?
-				if(thisButtonStatus && millis > autoRepeatBegin && millis > nextAutoRepeat)
+				if(thisButtonStatus && systemTicks > autoRepeatBegin && systemTicks > nextAutoRepeat)
 				{
 					// flag auto repeat
 					thisButtonStatus = thisButtonStatus|M_AUTO_REPEAT;
 					buttonsPressed = thisButtonStatus;
-					nextAutoRepeat = millis + AUTO_REPEAT_INTERVAL;
+					nextAutoRepeat = systemTicks + AUTO_REPEAT_INTERVAL;
 				}
 			}
 			else
@@ -298,8 +333,8 @@ void main()
 				if(buttonsPressed)
 				{
 					// prepare debounce and auto repeat
-					autoRepeatBegin = millis + AUTO_REPEAT_DELAY;
-					debouncePeriodEnd = millis + DEBOUNCE_PERIOD;
+					autoRepeatBegin = systemTicks + AUTO_REPEAT_DELAY;
+					debouncePeriodEnd = systemTicks + DEBOUNCE_PERIOD;
 					nextAutoRepeat = 0;
 				}
 			}
@@ -324,8 +359,8 @@ void main()
 					case M_AUTO_REPEAT|M_BUTTON_DEC:
 						if(bpm>30)
 						{
-							--bpm;
-							tickInterval = MS_PER_TICK/bpm;
+							bpm--;
+							setTimerForBPM(bpm);												
 						}
 						break;
 						
@@ -334,15 +369,15 @@ void main()
 					case M_AUTO_REPEAT|M_BUTTON_INC:
 						if(bpm<250)
 						{
-							++bpm;
-							tickInterval = MS_PER_TICK/bpm;
+							bpm++;
+							setTimerForBPM(bpm);						
 						}
 						break;
 				
 					// INC+DEC
 					case M_BUTTON_INC|M_BUTTON_DEC:
-						bpm = 120;
-						tickInterval = MS_PER_TICK/bpm;
+						bpm=120;
+						setTimerForBPM(bpm);
 						break;
 				}				
 			}
