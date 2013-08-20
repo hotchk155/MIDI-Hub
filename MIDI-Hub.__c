@@ -7,6 +7,9 @@ Last Ext=c
 Config=0
 Profiling=0
 Snapshot=0
+Type=0
+Warnings=1
+Model=0
 [Files]
 Count=1
 File0=MidiHub.c
@@ -20,3 +23,9 @@ Ports=1
 Interrupt=1
 Eeprom=1
 Misc=1
+[Tools]
+BoostDir=C:\Program Files (x86)\SourceBoost\
+Programmer=
+PrefixWithBuildThreadNum=0
+[Debugger]
+DebugFromMain=1
