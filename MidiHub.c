@@ -20,6 +20,7 @@
 // Rev H1: 29 Mar 2013 - fix issue with input buffer position
 // Rev H2: 17 May 2013 - increase debounce period
 // Rev H3: 12 Jul 2013 - use 16MHz clock, increase BPM accuracy, LED PWM
+// Rev H4:  1 Sep 2013 - tap tempo mode, options menu
 //
 //////////////////////////////////////////////////////////////////////////
 
@@ -62,26 +63,27 @@ typedef unsigned char byte;
 #define P_LED5		porta.2 
 
 // bit masks for button tracking
-#define M_BUTTON_RUN 0x01
-#define M_BUTTON_INC 0x02
-#define M_BUTTON_DEC 0x04
-#define M_AUTO_REPEAT 0x80
+#define M_BUTTON_RUN 			0x01
+#define M_BUTTON_INC 			0x02
+#define M_BUTTON_DEC 			0x04
+#define M_AUTO_REPEAT 			0x80
 
 // MIDI beat clock messages
-#define MIDI_SYNCH_TICK     0xf8
-#define MIDI_SYNCH_START    0xfa
-#define MIDI_SYNCH_CONTINUE 0xfb
-#define MIDI_SYNCH_STOP     0xfc
+#define MIDI_SYNCH_TICK     	0xf8
+#define MIDI_SYNCH_START    	0xfa
+#define MIDI_SYNCH_CONTINUE 	0xfb
+#define MIDI_SYNCH_STOP     	0xfc
 
 // Auto repeat delays 
 #define AUTO_REPEAT_INTERVAL	80
 #define AUTO_REPEAT_DELAY	 	500
 
 // Key debounce period 
-#define DEBOUNCE_PERIOD			200
+#define DEBOUNCE_PERIOD			100
 
 // PWM fade stuff
 #define FADE_PERIOD				30
+#define PWM_DIM 				5
 #define PWM_MAX 				50
 #define INITIAL_DUTY			10
 
@@ -100,7 +102,11 @@ typedef unsigned char byte;
 #define EEPROM_MAGIC_COOKIE 0xA5
 
 // Menu size
-#define MENU_SIZE 4 
+#define MENU_SIZE 6 
+
+//
+// GLOBAL DATA
+//
 
 // timer stuff
 volatile byte tick_flag = 0;
@@ -113,26 +119,34 @@ volatile byte rxBuffer[SZ_RXBUFFER];
 volatile byte rxHead = 0;
 volatile byte rxTail = 0;
 
-byte duty[6] = {0};
 
 // Configuration options
 enum {
-	OPTION_PASSREALTIMEMSG = 0x01,
-	OPTION_PASSOTHERMSG = 0x02,
-	OPTION_THRUANIMATE = 0x04,
-	OPTION_THRUINDICATE = 0x08,
-	OPTIONS_DEFAULT = OPTION_PASSOTHERMSG|OPTION_THRUANIMATE|OPTION_THRUINDICATE
+	OPTION_PASSREALTIMEMSG 	= 0x01,
+	OPTION_PASSOTHERMSG 	= 0x02,
+	OPTION_STARTSTOP 		= 0x04,	
+	OPTION_THRUANIMATE 		= 0x08,
+	OPTION_DISCREET 		= 0x10,
+	OPTIONS_DEFAULT 		= OPTION_PASSOTHERMSG|OPTION_STARTSTOP|OPTION_THRUANIMATE
 };
 byte _options = OPTIONS_DEFAULT;
 
 // Operating modes
 enum {
-	MODE_STEP,
-	MODE_TAP,
-	MODE_NOCLOCK,
-	MODE_MENU
+	MODE_STEP,		// BEAT CLOCK ON, INC/DEC SET
+	MODE_TAP,		// BEAT CLOCK ON, TAP SET
+	MODE_NOCLOCK,	// BEAT CLOCK OFF
+	MODE_MENU		// BEAT CLOCK OFF, OPTIONS MENU
 };
 byte _mode = MODE_STEP;
+
+// Brightness settings
+#define NUM_BRIGHTNESS_LEVELS 6
+byte brightnessLevels[NUM_BRIGHTNESS_LEVELS];
+byte _brightness = 0;
+
+// LED duty buffer
+byte duty[6];
 
 // BPM setting
 int _bpm = 0;
@@ -294,7 +308,6 @@ void midiThru()
 		}
 		// should we indicate thru traffic with flickering LEDs?
 		else 
-		if(_options & OPTION_THRUINDICATE)
 		{					
 			// flicker and send
 			P_LED2 = 1;
@@ -302,11 +315,6 @@ void midiThru()
 			send(q);
 			P_LED2 = 0;
 			P_LED3 = 0;
-		}
-		else
-		{
-			// just send the mf
-			send(q);
 		}
 	}		
 }
@@ -352,8 +360,18 @@ void main()
 	unsigned long tapPeriodAccumulator = 0;
 	unsigned long menuLoopCount = 0;
 	byte tapCount = 0;
-	byte pwm=0;
 	byte menuOption = 0;
+	
+	// initialise brightness levels
+	brightnessLevels[0] = 50;
+	brightnessLevels[1] = 20;
+	brightnessLevels[2] = 10;
+	brightnessLevels[3] = 5;
+	brightnessLevels[4] = 2;
+	brightnessLevels[5] = 1;
+	byte maxDuty = brightnessLevels[0];
+	byte pwm=0;	
+	duty[0] = duty[1] = duty[2] = duty[3] = duty[4] = duty[5] = 0;
 	
 	// osc control / 16MHz / internal
 	osccon = 0b01111010;
@@ -372,7 +390,7 @@ void main()
 	// setup default BPM
 	setBPM(BPM_DEFAULT);
 
-	// Configure timer 1
+	// Configure timer 1 (controls tempo)
 	// Input 4MHz
 	// Prescaled to 500KHz
 	tmr1l = 0;	 // reset timer count register
@@ -384,7 +402,7 @@ void main()
 	t1con.0 = 1; // timer 1 on
 	pie1.0 = 1;  // timer 1 interrupt enable
 	
-	// Configure timer 0
+	// Configure timer 0 (controls systemticks)
 	// 	timer 0 runs at 4MHz
 	// 	prescaled 1/16 = 250kHz
 	// 	rollover at 250 = 1kHz
@@ -413,32 +431,25 @@ void main()
 				
 		// run midi thru
 		midiThru();
-	
+		
 		// RUNNING MENU
 		if(MODE_MENU == _mode)
 		{
 			menuLoopCount++;
-			byte glow = ((menuLoopCount & 0x1F) == 0x1);
-			byte flash = ((menuLoopCount & 0x700) == 0x100);
-			P_LED0 = !!((glow && (_options & (1<<0))) || (flash && (menuOption == 0)));
-			P_LED1 = !!((glow && (_options & (1<<1))) || (flash && (menuOption == 1)));
-			P_LED2 = !!((glow && (_options & (1<<2))) || (flash && (menuOption == 2)));
-			P_LED3 = !!((glow && (_options & (1<<3))) || (flash && (menuOption == 3)));
-			P_LED4 = !!((glow && (_options & (1<<4))) || (flash && (menuOption == 4)));
-			P_LED5 = !!((glow && (_options & (1<<5))) || (flash && (menuOption == 5)));
+			byte flash = ((menuLoopCount & 0xF00) == 0x100);
+			duty[0] = (flash && (menuOption == 0)) ? PWM_MAX : ((_options & (1<<0)) ? PWM_DIM : 0);
+			duty[1] = (flash && (menuOption == 1)) ? PWM_MAX : ((_options & (1<<1)) ? PWM_DIM : 0);
+			duty[2] = (flash && (menuOption == 2)) ? PWM_MAX : ((_options & (1<<2)) ? PWM_DIM : 0);
+			duty[3] = (flash && (menuOption == 3)) ? PWM_MAX : ((_options & (1<<3)) ? PWM_DIM : 0);
+			duty[4] = (flash && (menuOption == 4)) ? PWM_MAX : ((_options & (1<<4)) ? PWM_DIM : 0);
+			duty[5] = maxDuty;
 		}
 		else 
 		// SPLIT-ONLY MODE
 		if(MODE_NOCLOCK == _mode)
 		{
-			P_LED0 = (duty[0]>pwm);
-			P_LED1 = (duty[1]>pwm);
-			P_LED2 = (duty[2]>pwm);
-			P_LED3 = (duty[3]>pwm);
-			P_LED4 = (duty[4]>pwm);
-			P_LED5 = (duty[5]>pwm);
-			if(++pwm > PWM_MAX) 
-				pwm=0;
+			// animation is driven from MIDI thru function,
+			// but we'll fade the LEDs in this main loop
 			if(systemTicks > nextFade)
 			{
 				for(byte i=0;i<6;++i) 
@@ -461,12 +472,12 @@ void main()
 			if(tapCount)
 			{
 				// illuminate LEDs for tap tempo entry
-				P_LED0 = 1;
-				P_LED1 = (tapCount > 1);
-				P_LED2 = (tapCount > 2);
-				P_LED3 = (tapCount > 3);
-				P_LED4 = (tapCount > 4);
-				P_LED5 = (tapCount > 5);
+				duty[0] = PWM_MAX;
+				duty[1] = (tapCount > 1) ? maxDuty : 0;
+				duty[2] = (tapCount > 2) ? maxDuty : 0;
+				duty[3] = (tapCount > 3) ? maxDuty : 0;
+				duty[4] = (tapCount > 4) ? maxDuty : 0;
+				duty[5] = (tapCount > 5) ? maxDuty : 0;
 				
 				// exit tap temp entry if it has been more than 
 				// 1 second since the last valid tap
@@ -479,27 +490,61 @@ void main()
 			}			
 			else if(running)
 			{
-				// Cycling "running" animation
-				byte whichLED = tickCount/4;				
-				P_LED0 = (whichLED == 0);
-				P_LED1 = (whichLED == 1);
-				P_LED2 = (whichLED == 2);
-				P_LED3 = (whichLED == 3);
-				P_LED4 = (whichLED == 4);
-				P_LED5 = (whichLED == 5);
+				if(_options & OPTION_DISCREET)
+				{
+					duty[0] = maxDuty;
+					duty[1] = 0;
+					duty[2] = 0;
+					duty[3] = 0;
+					duty[4] = 0;
+					duty[5] = (tickCount == 1)? maxDuty : 0;
+				}
+				else
+				{				
+					// Cycling "running" animation
+					byte whichLED = tickCount/4;				
+					duty[0] = (whichLED == 0)? maxDuty : 0;
+					duty[1] = (whichLED == 1)? maxDuty : 0;
+					duty[2] = (whichLED == 2)? maxDuty : 0;
+					duty[3] = (whichLED == 3)? maxDuty : 0;
+					duty[4] = (whichLED == 4)? maxDuty : 0;
+					duty[5] = (whichLED == 5)? maxDuty : 0;
+				}
 			}
 			else 
 			{
-				// Flashing "paused" indicator (leds 0,1,4,5)
-				P_LED0 = (!tickCount);
-				P_LED1 = (!tickCount);
-				P_LED2 = 0;
-				P_LED3 = 0;
-				P_LED4 = (!tickCount);
-				P_LED5 = (!tickCount);
-			}
+				if(_options & OPTION_DISCREET)
+				{
+					duty[0] = 0;
+					duty[1] = 0;
+					duty[2] = 0;
+					duty[3] = 0;
+					duty[4] = 0;
+					duty[5] = tickCount? 0 : maxDuty;
+				}
+				else
+				{
+					// Flashing "paused" indicator (leds 0,1,4,5)
+					duty[0] = tickCount? 0 : maxDuty;
+					duty[1] = tickCount? 0 : maxDuty;
+					duty[2] = 0;
+					duty[3] = 0;
+					duty[4] = tickCount? 0 : maxDuty;
+					duty[5] = tickCount? 0 : maxDuty;				
+				}
+			}			
 		}	
-		
+
+		// PWM the LEDs
+		P_LED0 = (duty[0]>pwm);
+		P_LED1 = (duty[1]>pwm);
+		P_LED2 = (duty[2]>pwm);
+		P_LED3 = (duty[3]>pwm);
+		P_LED4 = (duty[4]>pwm);
+		P_LED5 = (duty[5]>pwm);
+		if(++pwm > PWM_MAX) 
+			pwm=0;
+
 		// HANDLE USER INPUT
 		if(systemTicks >= debouncePeriodEnd) // check not debouncing
 		{
@@ -532,9 +577,9 @@ void main()
 				{
 					// prepare debounce and auto repeat
 					autoRepeatBegin = systemTicks + AUTO_REPEAT_DELAY;
-					debouncePeriodEnd = systemTicks + DEBOUNCE_PERIOD;
 					nextAutoRepeat = 0;
 				}
+				debouncePeriodEnd = systemTicks + DEBOUNCE_PERIOD;
 			}
 			
 			// any new button presses or auto repeats?
@@ -576,11 +621,19 @@ void main()
 						{
 							// When clock is enabled we toggle run/paused
 							running = !running;
-							if(running)
-								send(MIDI_SYNCH_START);
-							else
-								send(MIDI_SYNCH_STOP);			
-						}
+							if(_options & OPTION_STARTSTOP)
+							{
+								if(running)
+								{
+									tickCount = 0;
+									send(MIDI_SYNCH_START);
+								}
+								else
+								{
+									send(MIDI_SYNCH_STOP);			
+								}
+							}
+						}						
 						else if(MODE_MENU == _mode)
 						{
 							// Exits from menu mode
@@ -593,9 +646,17 @@ void main()
 					// DEC PRESSED
 					case M_BUTTON_DEC:
 						if(MODE_MENU == _mode)
-						{
-							// In menu mode, toggles options on/off
-							_options ^= (1<<menuOption);
+						{							
+							if(5 == menuOption)
+							{
+								_brightness = (_brightness + 1) % NUM_BRIGHTNESS_LEVELS;
+								maxDuty = brightnessLevels[_brightness];
+							}
+							else
+							{
+								// In menu mode, toggles options on/off
+								_options ^= (1<<menuOption);
+							}							
 							saveOptions();
 							break;
 						}
