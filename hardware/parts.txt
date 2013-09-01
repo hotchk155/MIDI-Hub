@@ -6,14 +6,14 @@ R15, R16, R17, R18, R19, R20 - 1K 5% SMT 0805 package (LED current limiting resi
 
 R22, R23 - 1.8K 5% SMT 0805 package
 
-R24, R25, 26 - 10K resistor 5% SMT 0805 package
+R24, R25, R26 - 10K resistor 5% SMT 0805 package
 
-C4 - 100nF ceramic capacitor SMT 0805 package
+C2,C4 - 100nF ceramic capacitor SMT 0805 package
 C3 - 4.7uF tantalum capacitor SMT "C" case 
 
 D1 - 1N4148 or equiv small signal diode SMT
 
-IC1 - 4050D hex non-inverting buffer SOIC16
+IC1 - CD4050B hex non-inverting buffer SOIC16
 IC3 - PIC16F1825 (or PIC16F688 with previous firmware) microcontroller 
 
 THRU HOLE
