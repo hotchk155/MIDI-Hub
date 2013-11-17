@@ -10,17 +10,28 @@
 // //      //  //    //////  //  //    //    //////  //////    
 //
 // MIDI HUB WITH BEAT CLOCK METRONOME
-// Jason Hotchkiss
+// By Jason Hotchkiss
+// FOR PIC16F1825 SOURCEBOOST C
 //
+// This work is licensed under the Creative Commons 
+// Attribution-NonCommercial 3.0 Unported License. 
+// To view a copy of this license, please visit:
+// http://creativecommons.org/licenses/by-nc/3.0/
 //
-// FOR PIC16F1825
-// SOURCEBOOST C
+// Please contact me directly if you'd like a CC 
+// license allowing use for commercial purposes:
+// jason_hotchkiss<at>hotmail.com
 //
+// Full repository with hardware information:
+// https://github.com/hotchk155/MIDI-Hub
+
 // Rev H0:    Feb 2013 - port of original PIC16F688 code
 // Rev H1: 29 Mar 2013 - fix issue with input buffer position
 // Rev H2: 17 May 2013 - increase debounce period
 // Rev H3: 12 Jul 2013 - use 16MHz clock, increase BPM accuracy, LED PWM
 // Rev H4:  1 Sep 2013 - tap tempo mode, options menu
+//
+//WORK IN PROGRESS
 //
 //////////////////////////////////////////////////////////////////////////
 
@@ -66,6 +77,7 @@ typedef unsigned char byte;
 #define M_BUTTON_RUN 			0x01
 #define M_BUTTON_INC 			0x02
 #define M_BUTTON_DEC 			0x04
+#define M_LONG_PRESS			0x40
 #define M_AUTO_REPEAT 			0x80
 
 // MIDI beat clock messages
@@ -361,6 +373,8 @@ void main()
 	unsigned long menuLoopCount = 0;
 	byte tapCount = 0;
 	byte menuOption = 0;
+	byte runLock = 0;
+	byte midiRestart = 0;
 	
 	// initialise brightness levels
 	brightnessLevels[0] = 50;
@@ -464,7 +478,14 @@ void main()
 		{
 			tick_flag = 0;	
 			if(++tickCount > 23)
+			{
+				if(midiRestart)
+				{
+					send(MIDI_SYNCH_START);
+					midiRestart = 0;
+				}
 				tickCount = 0;
+			}
 			if(running)
 				send(MIDI_SYNCH_TICK);
 		
@@ -561,12 +582,20 @@ void main()
 			if(!buttonActivity)
 			{				
 				// do we need to autorepeat?
-				if(thisButtonStatus && systemTicks > autoRepeatBegin && systemTicks > nextAutoRepeat)
+				if(thisButtonStatus && systemTicks > autoRepeatBegin)
 				{
-					// flag auto repeat
-					thisButtonStatus = thisButtonStatus|M_AUTO_REPEAT;
-					buttonsPressed = thisButtonStatus;
-					nextAutoRepeat = systemTicks + AUTO_REPEAT_INTERVAL;
+					if(!nextAutoRepeat)
+					{
+						thisButtonStatus = thisButtonStatus|M_LONG_PRESS;
+						buttonsPressed = thisButtonStatus;
+						nextAutoRepeat = systemTicks + AUTO_REPEAT_INTERVAL;
+					}
+					else if(systemTicks > nextAutoRepeat)
+					{
+						thisButtonStatus = thisButtonStatus|M_AUTO_REPEAT;
+						buttonsPressed = thisButtonStatus;
+						nextAutoRepeat = systemTicks + AUTO_REPEAT_INTERVAL;
+					}
 				}
 			}
 			else
@@ -619,18 +648,25 @@ void main()
 					case M_BUTTON_RUN:				
 						if(MODE_TAP == _mode || MODE_STEP == _mode)
 						{
-							// When clock is enabled we toggle run/paused
-							running = !running;
-							if(_options & OPTION_STARTSTOP)
+							if(runLock)
 							{
-								if(running)
+								midiRestart = 1;
+							}
+							else
+							{
+								// When clock is enabled we toggle run/paused
+								running = !running;
+								if(_options & OPTION_STARTSTOP)
 								{
-									tickCount = 0;
-									send(MIDI_SYNCH_START);
-								}
-								else
-								{
-									send(MIDI_SYNCH_STOP);			
+									if(running)
+									{
+										tickCount = 0;
+										send(MIDI_SYNCH_START);
+									}
+									else
+									{
+										send(MIDI_SYNCH_STOP);			
+									}
 								}
 							}
 						}						
@@ -639,6 +675,18 @@ void main()
 							// Exits from menu mode
 							_mode = MODE_STEP;
 							running = 0;
+						}
+						break;
+
+					case M_BUTTON_RUN|M_LONG_PRESS:										
+						if(!runLock)
+						{
+							runLock = 1;
+							running = 1;
+						}
+						else
+						{
+							runLock = 0;
 						}
 						break;
 						
@@ -687,6 +735,7 @@ void main()
 							lastTapSystemTicks = systemTicks;
 							break;
 						}//fallthru
+					case M_LONG_PRESS|M_BUTTON_DEC:
 					case M_AUTO_REPEAT|M_BUTTON_DEC:
 						if(MODE_STEP == _mode)
 							setBPM(_bpm-1);												
@@ -708,6 +757,7 @@ void main()
 							_mode = MODE_STEP;
 							break;
 						}//fallthru
+					case M_LONG_PRESS|M_BUTTON_INC:
 					case M_AUTO_REPEAT|M_BUTTON_INC:
 						if(MODE_STEP == _mode)
 							setBPM(_bpm+1);												
