@@ -30,8 +30,7 @@
 // Rev H2: 17 May 2013 - increase debounce period
 // Rev H3: 12 Jul 2013 - use 16MHz clock, increase BPM accuracy, LED PWM
 // Rev H4:  1 Sep 2013 - tap tempo mode, options menu
-//
-//WORK IN PROGRESS
+// Rev H5: 17 Nov 2013 - new options for explicit midi START/STOP/CONTINUE
 //
 //////////////////////////////////////////////////////////////////////////
 
@@ -670,7 +669,14 @@ void main()
 								}
 							}
 						}						
-						else if(MODE_MENU == _mode)
+						else
+						if(MODE_NOCLOCK == _mode) // SPLIT MODE
+						{
+							send(MIDI_SYNCH_START);
+							running = 1;
+						}
+						else 
+						if(MODE_MENU == _mode)
 						{
 							// Exits from menu mode
 							_mode = MODE_STEP;
@@ -751,6 +757,19 @@ void main()
 							break;
 						}
 						else 
+						if(MODE_NOCLOCK == _mode) // SPLIT MODE
+						{
+							if(running)
+							{
+								send(MIDI_SYNCH_STOP);
+								running = 0;
+							}
+							else
+							{
+								send(MIDI_SYNCH_CONTINUE);
+								running = 1;
+							}						
+						}
 						if(MODE_TAP == _mode)
 						{
 							// tap mode - exits tap mode
