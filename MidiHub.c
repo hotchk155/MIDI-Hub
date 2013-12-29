@@ -31,7 +31,9 @@
 // Rev H3: 12 Jul 2013 - use 16MHz clock, increase BPM accuracy, LED PWM
 // Rev H4:  1 Sep 2013 - tap tempo mode, options menu
 // Rev H5: 17 Nov 2013 - new options for explicit midi START/STOP/CONTINUE
+// Rev H6: 29 Dec 2013 - tighter baudrate definition, added version display
 //
+#define FIRMWARE_VERSION 6
 //////////////////////////////////////////////////////////////////////////
 
 
@@ -258,7 +260,7 @@ void initUSART()
 	rcsta.4 = 1;	// CREN 	continuous receive enable
 		
 	spbrgh = 0;		// brg high byte
-	spbrg = 30;		// brg low byte (31250)	
+	spbrg = 31;		// brg low byte (31250)	
 	
 }
 
@@ -355,6 +357,19 @@ void setBPM(int b)
 }
 
 ////////////////////////////////////////////////////////////
+// SHOW VERSION
+void showVersion()
+{
+	P_LED0 = !!(FIRMWARE_VERSION&0x20);
+	P_LED1 = !!(FIRMWARE_VERSION&0x10);
+	P_LED2 = !!(FIRMWARE_VERSION&0x08);
+	P_LED3 = !!(FIRMWARE_VERSION&0x04);
+	P_LED4 = !!(FIRMWARE_VERSION&0x02);
+	P_LED5 = !!(FIRMWARE_VERSION&0x01);
+	delay_s(5);
+}
+
+////////////////////////////////////////////////////////////
 // MAIN
 void main()
 { 
@@ -397,6 +412,10 @@ void main()
 	porta=0;
 	portc=0;
 
+	// Version display
+	if(!P_RUN)
+		showVersion();
+		
 	// initialise MIDI comms
 	initUSART();
 
