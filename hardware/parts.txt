@@ -1,6 +1,10 @@
+MIDI HUB BOM    
+------------
 
-R1, R2, R3, R4, R5, R6, R7, R8, R9, 
-R10, R11, R12, R21 - 220R 5% SMT 0805 package
+SURFACE MOUNTS
+--------------
+
+R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R21 - 220R 5% SMT 0805 package
 
 R15, R16, R17, R18, R19, R20 - 1K 5% SMT 0805 package (LED current limiting resistors, match to LED used - at 5V)
 
@@ -9,17 +13,24 @@ R22, R23 - 1.8K 5% SMT 0805 package
 R24, R25, R26 - 10K resistor 5% SMT 0805 package
 
 C2,C4 - 100nF ceramic capacitor SMT 0805 package
+
 C3 - 4.7uF tantalum capacitor SMT "C" case 
 
 D1 - 1N4148 or equiv small signal diode SMT
 
 IC1 - CD4050B hex non-inverting buffer SOIC16
+
 IC3 - PIC16F1825 (or PIC16F688 with previous firmware) microcontroller 
 
 THRU HOLE
+---------
+
 L1, L2, L3, L4, L5, L6 - 3mm High Brightness Blue LED
-IC2 - 6N138 or 6N139 high speed opto-isolator (SMT or DIP8 in socket)
-6 pin 0.1" pitch male SIL header strip
-7 x 5-pin 180 degree DIN socket to fit PCB mounting holes
+
+IC2 - 6N138 opto-isolator DIP8
+
+7 x 5-pin 180 degree 5-pin DIN socket 
+
 3 x 12mm tactile switch
+
 Mini USB socket SMT to fit PCB pads
